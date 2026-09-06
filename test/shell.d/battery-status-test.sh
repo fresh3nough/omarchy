@@ -184,13 +184,80 @@ grep -Fx $'rate\t10.8W' <<<"$fallback_output" >/dev/null || fail "fallback still
 
 pass "battery status falls back when DisplayDevice is absent"
 
-# One pack reporting a full sysfs native-path leaves nothing to read under
-# /sys/class/power_supply, so summing only the packs that resolved would report
-# a fraction of the real draw -- and a low enough rate reads as a held charge.
+# Drivers that report native-path as a full /sys/devices/... path still resolve
+# through the power_supply class basename, so live wattage stays available.
+mkdir -p "$tmp_dir/power/BAT1"
+printf '0\n' >"$tmp_dir/power/BAT0/power_now"
+printf '45000000\n' >"$tmp_dir/power/BAT1/power_now"
+rm -f "$tmp_dir/power/BAT0/current_now" "$tmp_dir/power/BAT0/voltage_now"
+rm -f "$tmp_dir/power/BAT1/current_now" "$tmp_dir/power/BAT1/voltage_now"
+
+cat >"$tmp_dir/bin/upower" <<'STUB'
+#!/bin/bash
+
+if [[ $1 == "-e" ]]; then
+  echo "/org/freedesktop/UPower/devices/battery_BAT0"
+  echo "/org/freedesktop/UPower/devices/battery_BAT1"
+  echo "/org/freedesktop/UPower/devices/DisplayDevice"
+  exit 0
+fi
+
+if [[ $1 == "-i" ]]; then
+  case "$2" in
+    *DisplayDevice)
+      cat <<'INFO'
+  state:                charging
+  energy:               56.1 Wh
+  energy-full:          66.0 Wh
+  energy-rate:          5.0 W
+  time to full:         0.3 hours
+  percentage:           85%
+INFO
+      ;;
+    *BAT0)
+      cat <<'INFO'
+  native-path:          BAT0
+  state:                fully-charged
+  energy-full:          24.0 Wh
+  energy-rate:          0.0 W
+  percentage:           98%
+INFO
+      ;;
+    *BAT1)
+      cat <<'INFO'
+  native-path:          /sys/devices/LNXSYSTM:00/LNXSYBUS:00/PNP0C0A:01/power_supply/BAT1
+  state:                charging
+  energy-full:          42.0 Wh
+  energy-rate:          5.0 W
+  percentage:           79%
+INFO
+      ;;
+    *)
+      exit 1
+      ;;
+  esac
+  exit 0
+fi
+
+exit 1
+STUB
+chmod +x "$tmp_dir/bin/upower"
+
+abs_path_output=$(OMARCHY_POWER_SUPPLY_PATH="$tmp_dir/power" PATH="$tmp_dir/bin:$PATH" "$ROOT/bin/omarchy-battery-status" --shell)
+
+# BAT0 0W + BAT1 45W via basename of the absolute native-path; not the stale 5W.
+grep -Fx $'rate\t45W' <<<"$abs_path_output" >/dev/null || fail "absolute native-path still sums live sysfs power" "$abs_path_output"
+grep -Fx $'state\tcharging' <<<"$abs_path_output" >/dev/null || fail "absolute native-path path keeps DisplayDevice state" "$abs_path_output"
+
+pass "battery status resolves absolute native-path via basename"
+
+# A pack with no readable sysfs node at all must not replace the DisplayDevice
+# rate with a subtotal: a low enough result reads as a held charge.
 mkdir -p "$tmp_dir/power/AC"
 printf 'Mains\n' >"$tmp_dir/power/AC/type"
 printf '1\n' >"$tmp_dir/power/AC/online"
 printf '0\n' >"$tmp_dir/power/BAT0/power_now"
+rm -rf "$tmp_dir/power/BAT1"
 
 cat >"$tmp_dir/bin/upower" <<'STUB'
 #!/bin/bash
@@ -227,7 +294,7 @@ INFO
       ;;
     *BAT1)
       cat <<'INFO'
-  native-path:          /sys/devices/LNXSYSTM:00/LNXSYBUS:00/PNP0C0A:01/power_supply/BAT1
+  native-path:          BAT1
   state:                charging
   energy-full:          42.0 Wh
   energy-rate:          45.0 W
@@ -251,6 +318,91 @@ grep -Fx $'rate\t45W' <<<"$partial_output" >/dev/null || fail "unresolvable pack
 grep -Fx $'state\tcharging' <<<"$partial_output" >/dev/null || fail "a charging pack is not reported as holding" "$partial_output"
 
 pass "battery status keeps the aggregate rate when a pack has no readable sysfs"
+
+# battery_info remains an alias of the primary pack so concurrent design/health
+# work that still reads that name does not silently drop those keys. Patch a
+# temporary copy the same way #10377 would compose onto this branch.
+tmp_script=$(mktemp)
+trap 'rm -rf "$tmp_dir"; rm -f "$tmp_script"' EXIT
+cp "$ROOT/bin/omarchy-battery-status" "$tmp_script"
+chmod +x "$tmp_script"
+
+python3 - "$tmp_script" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text()
+needle = "  cycles=$(cat \"$power_supply_path\"/BAT*/cycle_count 2>/dev/null | head -1)\n"
+insert = (
+    "  # Composed design/health keys still read battery_info.\n"
+    "  design=$(awk '/energy-full-design:/ { printf \"%d\", $2; exit }' <<<\"$battery_info\")\n"
+    "  health=$(awk '/^[[:space:]]*capacity:/ { gsub(/%/, \"\", $2); printf \"%d\", $2; exit }' <<<\"$battery_info\")\n"
+    "  [[ -n $design ]] && (( design > 0 )) && printf 'design\\t%sWh\\n' \"$design\"\n"
+    "  [[ -n $health ]] && (( health > 0 )) && printf 'health\\t%s%%\\n' \"$health\"\n\n"
+)
+if needle not in text:
+    raise SystemExit("cycles line not found for composition stub")
+path.write_text(text.replace(needle, insert + needle, 1))
+PY
+
+cat >"$tmp_dir/bin/upower" <<'STUB'
+#!/bin/bash
+
+if [[ $1 == "-e" ]]; then
+  echo "/org/freedesktop/UPower/devices/battery_BAT0"
+  echo "/org/freedesktop/UPower/devices/DisplayDevice"
+  exit 0
+fi
+
+if [[ $1 == "-i" ]]; then
+  case "$2" in
+    *DisplayDevice)
+      cat <<'INFO'
+  state:                discharging
+  energy:               28.3 Wh
+  energy-full:          56.7 Wh
+  energy-rate:          7.3 W
+  time to empty:        2.5 hours
+  percentage:           51%
+INFO
+      ;;
+    *BAT0)
+      cat <<'INFO'
+  native-path:          BAT0
+  state:                discharging
+  energy:               28.3 Wh
+  energy-full:          56.7 Wh
+  energy-full-design:   78.9 Wh
+  energy-rate:          7.3 W
+  time to empty:        2.5 hours
+  percentage:           51%
+  capacity:             71.8%
+  capacity-level:       Normal
+INFO
+      ;;
+    *)
+      exit 1
+      ;;
+  esac
+  exit 0
+fi
+
+exit 1
+STUB
+chmod +x "$tmp_dir/bin/upower"
+printf '900000\n' >"$tmp_dir/power/BAT0/current_now"
+printf '12000000\n' >"$tmp_dir/power/BAT0/voltage_now"
+rm -f "$tmp_dir/power/BAT0/power_now"
+rm -rf "$tmp_dir/power/AC" "$tmp_dir/power/BAT1"
+
+composed_output=$(OMARCHY_POWER_SUPPLY_PATH="$tmp_dir/power" PATH="$tmp_dir/bin:$PATH" "$tmp_script" --shell)
+
+grep -Fx $'design\t78Wh' <<<"$composed_output" >/dev/null || fail "battery_info alias still supplies design capacity for composed keys" "$composed_output"
+grep -Fx $'health\t71%' <<<"$composed_output" >/dev/null || fail "battery_info alias still supplies pack health for composed keys" "$composed_output"
+grep -Fx $'health\t0%' <<<"$composed_output" >/dev/null && fail "composed health must not read capacity-level" "$composed_output"
+
+pass "battery_info alias keeps composed design/health keys working"
 
 if matches=$(rg -n 'omarchy-battery-(capacity|remaining|remaining-time)' "$ROOT/bin" "$ROOT/test" "$ROOT/shell" "$ROOT/docs"); then
   fail "battery status owns capacity and remaining calculations" "$matches"
