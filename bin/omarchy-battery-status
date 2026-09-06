@@ -60,7 +60,7 @@ state=$(awk '/state/ { print $2; exit }' <<<"$aggregate_info")
 # instantaneous sysfs reading across every BAT so dual-battery packs stay live
 # and match the aggregate percentage above.
 sysfs_rate_sum=0
-sysfs_rate_found=false
+sysfs_rate_count=0
 for battery in "${batteries[@]}"; do
   battery_detail=$(upower -i "$battery")
   native_path=$(awk '/native-path/ { print $2; exit }' <<<"$battery_detail")
@@ -70,18 +70,20 @@ for battery in "${batteries[@]}"; do
   if [[ -r $battery_path/power_now ]]; then
     part=$(awk -v microwatts="$(<"$battery_path/power_now")" 'BEGIN { print microwatts / 1000000 }')
     sysfs_rate_sum=$(awk -v a="$sysfs_rate_sum" -v b="$part" 'BEGIN { print a + b }')
-    sysfs_rate_found=true
+    ((sysfs_rate_count++))
   elif [[ -r $battery_path/current_now && -r $battery_path/voltage_now ]]; then
     part=$(awk \
       -v microamps="$(<"$battery_path/current_now")" \
       -v microvolts="$(<"$battery_path/voltage_now")" \
       'BEGIN { print microamps * microvolts / 1000000000000 }')
     sysfs_rate_sum=$(awk -v a="$sysfs_rate_sum" -v b="$part" 'BEGIN { print a + b }')
-    sysfs_rate_found=true
+    ((sysfs_rate_count++))
   fi
 done
 
-if [[ $sysfs_rate_found == "true" ]]; then
+# A subtotal is worse than a lagging total: a pack whose native-path does not
+# resolve drops out of the sum, and a low enough result reads as idle below.
+if ((sysfs_rate_count == ${#batteries[@]})); then
   power_rate_raw=$sysfs_rate_sum
 fi
 

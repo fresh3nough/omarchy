@@ -184,6 +184,74 @@ grep -Fx $'rate\t10.8W' <<<"$fallback_output" >/dev/null || fail "fallback still
 
 pass "battery status falls back when DisplayDevice is absent"
 
+# One pack reporting a full sysfs native-path leaves nothing to read under
+# /sys/class/power_supply, so summing only the packs that resolved would report
+# a fraction of the real draw -- and a low enough rate reads as a held charge.
+mkdir -p "$tmp_dir/power/AC"
+printf 'Mains\n' >"$tmp_dir/power/AC/type"
+printf '1\n' >"$tmp_dir/power/AC/online"
+printf '0\n' >"$tmp_dir/power/BAT0/power_now"
+
+cat >"$tmp_dir/bin/upower" <<'STUB'
+#!/bin/bash
+
+if [[ $1 == "-e" ]]; then
+  echo "/org/freedesktop/UPower/devices/battery_BAT0"
+  echo "/org/freedesktop/UPower/devices/battery_BAT1"
+  echo "/org/freedesktop/UPower/devices/DisplayDevice"
+  exit 0
+fi
+
+if [[ $1 == "-i" ]]; then
+  case "$2" in
+    *DisplayDevice)
+      cat <<'INFO'
+  state:                charging
+  energy:               56.1 Wh
+  energy-full:          66.0 Wh
+  energy-rate:          45.0 W
+  time to full:         0.3 hours
+  percentage:           85%
+INFO
+      ;;
+    *BAT0)
+      cat <<'INFO'
+  native-path:          BAT0
+  state:                fully-charged
+  energy-full:          24.0 Wh
+  energy-rate:          0.0 W
+  percentage:           98%
+  charge-start-threshold: 75%
+  charge-end-threshold:   80%
+INFO
+      ;;
+    *BAT1)
+      cat <<'INFO'
+  native-path:          /sys/devices/LNXSYSTM:00/LNXSYBUS:00/PNP0C0A:01/power_supply/BAT1
+  state:                charging
+  energy-full:          42.0 Wh
+  energy-rate:          45.0 W
+  percentage:           79%
+INFO
+      ;;
+    *)
+      exit 1
+      ;;
+  esac
+  exit 0
+fi
+
+exit 1
+STUB
+chmod +x "$tmp_dir/bin/upower"
+
+partial_output=$(OMARCHY_POWER_SUPPLY_PATH="$tmp_dir/power" PATH="$tmp_dir/bin:$PATH" "$ROOT/bin/omarchy-battery-status" --shell)
+
+grep -Fx $'rate\t45W' <<<"$partial_output" >/dev/null || fail "unresolvable pack keeps the DisplayDevice rate instead of a subtotal" "$partial_output"
+grep -Fx $'state\tcharging' <<<"$partial_output" >/dev/null || fail "a charging pack is not reported as holding" "$partial_output"
+
+pass "battery status keeps the aggregate rate when a pack has no readable sysfs"
+
 if matches=$(rg -n 'omarchy-battery-(capacity|remaining|remaining-time)' "$ROOT/bin" "$ROOT/test" "$ROOT/shell" "$ROOT/docs"); then
   fail "battery status owns capacity and remaining calculations" "$matches"
 fi
