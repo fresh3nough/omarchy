@@ -7,6 +7,10 @@ import heapq
 from pathlib import Path
 
 
+# Base plan floors only. Real account quota can be higher (referral bonuses,
+# add-ons) and is not available locally without the Dropbox API (issue #10356).
+# When local usage exceeds a floor, treat quota as unknown rather than implying
+# the account is over limit.
 PLAN_QUOTAS = {
   "basic": 2_000_000_000,
   "plus": 2_000_000_000_000,
@@ -106,7 +110,13 @@ def main():
     running = status_exit == 0 and status_output != "" and not stopped
 
   used, files = scan_dropbox(account_path, limit) if authenticated else (0, [])
-  usage_percent = (used / quota * 100) if quota > 0 else 0
+
+  # A plan floor is only trustworthy while local usage stays under it. Bonus /
+  # referral space makes "3.11 GB of 2 GB" and a red over-quota reading wrong.
+  quota_known = quota > 0 and used <= quota
+  if not quota_known:
+    quota = 0
+  usage_percent = (used / quota * 100) if quota_known else 0
 
   print(json.dumps({
     "ok": True,
@@ -119,7 +129,7 @@ def main():
     "usedBytes": used,
     "quotaBytes": quota,
     "usagePercent": usage_percent,
-    "quotaKnown": quota > 0,
+    "quotaKnown": quota_known,
     "files": files,
   }))
 

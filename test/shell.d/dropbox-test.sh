@@ -16,6 +16,13 @@ assertEqual(dropbox.formatBytes(2_000_000_000), '2 GB', 'dropbox formats gigabyt
 assertEqual(dropbox.formatPercent(7.25), '7.3%', 'dropbox formats small percentages')
 assertEqual(dropbox.usageText(1000, 2000, true), '1 KB of 2 KB', 'dropbox formats known quota usage')
 assertEqual(dropbox.usageText(1000, 0, false), '1 KB', 'dropbox formats unknown quota usage')
+// When quota is unknown (bonus space above a plan floor), UI must not claim
+// "of 2 GB" — that is how issue #10356 showed used > quota in red.
+assertEqual(
+  dropbox.usageText(3_110_000_000, 0, false),
+  '3.11 GB',
+  'dropbox formats usage without a false plan-floor quota'
+)
 
 const parsed = dropbox.parseStatus(JSON.stringify({
   installed: true,
