@@ -4,8 +4,9 @@ set -euo pipefail
 
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
-# Ghostty fullscreen freezes on fractional scale; the launcher must fall back to
-# foot for the screensaver only (issue #10420).
+# Ghostty fullscreen on fractional scale can stick on the last pre-resize frame
+# (often cross-GPU dmabuf import failure). Launcher must fall back to foot for
+# the screensaver only (issue #10420).
 
 require_command jq
 
