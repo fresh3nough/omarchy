@@ -6,13 +6,7 @@
 # aborts the whole compose file — every sequence dies, not only the Omarchy
 # ones. Keep a home-local copy and include it with %H so containers that see
 # $HOME still parse the table.
-packaged_xcompose="${OMARCHY_PATH}/default/xcompose"
-home_xcompose="$HOME/.XCompose.omarchy"
-
-if [[ -f $packaged_xcompose ]]; then
-  cp "$packaged_xcompose" "$home_xcompose"
-  chmod 644 "$home_xcompose"
-fi
+omarchy-refresh-xcompose
 
 tee ~/.XCompose >/dev/null <<EOF
 # Run omarchy-restart-xcompose to apply changes

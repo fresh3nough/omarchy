@@ -4,7 +4,8 @@ set -euo pipefail
 
 # Absolute includes into /usr/share/omarchy break compose inside sandboxes that
 # only bind-mount $HOME. The install leaf must seed a home-local table and
-# point ~/.XCompose at it with %H.
+# point ~/.XCompose at it with %H. Package updates must refresh that copy on the
+# normal fcitx5 start path, not only inside migrations.
 
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
@@ -13,17 +14,20 @@ trap 'rm -rf "$test_tmp"' EXIT
 
 home="$test_tmp/home"
 packaged_root="$test_tmp/omarchy"
-mkdir -p "$home" "$packaged_root/default" "$packaged_root/install/user"
+mock_bin="$test_tmp/bin"
+mkdir -p "$home" "$packaged_root/default" "$packaged_root/install/user" "$packaged_root/bin" "$mock_bin"
 
 cat >"$packaged_root/default/xcompose" <<'EOF'
 include "%L"
 <Multi_key> <m> <s> : "smile"
 EOF
 
+cp "$ROOT/bin/omarchy-refresh-xcompose" "$packaged_root/bin/omarchy-refresh-xcompose"
+chmod +x "$packaged_root/bin/omarchy-refresh-xcompose"
 cp "$ROOT/install/user/xcompose.sh" "$packaged_root/install/user/xcompose.sh"
 
-HOME="$home" OMARCHY_PATH="$packaged_root" OMARCHY_USER_NAME="Test User" \
-  OMARCHY_USER_EMAIL="test@example.com" \
+HOME="$home" OMARCHY_PATH="$packaged_root" PATH="$packaged_root/bin:$PATH" \
+  OMARCHY_USER_NAME="Test User" OMARCHY_USER_EMAIL="test@example.com" \
   bash -c 'source "$OMARCHY_PATH/install/user/xcompose.sh"'
 
 [[ -f $home/.XCompose.omarchy ]] || fail "install seeds ~/.XCompose.omarchy from the packaged table"
@@ -38,7 +42,8 @@ grep -Eq '^[[:space:]]*include[[:space:]]+"%H/\.XCompose\.omarchy"' "$home/.XCom
 
 pass "install/user/xcompose.sh seeds a %H-relative home-local include"
 
-# Migration rewrites an existing absolute include and refreshes the home copy.
+# Migration rewrites an existing absolute include and refreshes the home copy,
+# without restarting fcitx5 (#9541).
 abs_home="$test_tmp/abs-home"
 mkdir -p "$abs_home"
 cat >"$abs_home/.XCompose" <<'EOF'
@@ -49,16 +54,15 @@ include "/usr/share/omarchy/default/xcompose"
 <Multi_key> <space> <n> : "Keep Me"
 EOF
 
-# Migration calls omarchy-restart-xcompose; stub it so the unit manager is not required.
-mock_bin="$test_tmp/bin"
-mkdir -p "$mock_bin"
 cat >"$mock_bin/omarchy-restart-xcompose" <<'SH'
 #!/bin/bash
-exit 0
+printf 'restart\n' >>"${OMARCHY_TEST_CALLS:?}"
 SH
 chmod +x "$mock_bin/omarchy-restart-xcompose"
+: >"$test_tmp/calls"
 
-HOME="$abs_home" OMARCHY_PATH="$packaged_root" PATH="$mock_bin:$PATH" \
+HOME="$abs_home" OMARCHY_PATH="$packaged_root" \
+  PATH="$mock_bin:$packaged_root/bin:$PATH" OMARCHY_TEST_CALLS="$test_tmp/calls" \
   bash "$ROOT/migrations/1788138200.sh"
 
 [[ -f $abs_home/.XCompose.omarchy ]] || fail "migration copies the packaged table into the home"
@@ -66,8 +70,47 @@ grep -Eq '^[[:space:]]*include[[:space:]]+"%H/\.XCompose\.omarchy"' "$abs_home/.
   || fail "migration rewrites the absolute include to %H/.XCompose.omarchy" "$(cat "$abs_home/.XCompose")"
 grep -Fq 'Keep Me' "$abs_home/.XCompose" \
   || fail "migration preserves the user's own compose sequences"
+[[ ! -s $test_tmp/calls ]] || fail "migration must not restart fcitx5" "$(cat "$test_tmp/calls")"
 
-pass "migration rewrites absolute XCompose includes without dropping user sequences"
+pass "migration rewrites absolute XCompose includes without restarting fcitx5"
+
+# Normal update path: fcitx5 ExecStartPre runs omarchy-refresh-xcompose so a
+# newer packaged table reaches ~/.XCompose.omarchy without a migration.
+refresh_home="$test_tmp/refresh-home"
+mkdir -p "$refresh_home"
+cat >"$refresh_home/.XCompose.omarchy" <<'EOF'
+include "%L"
+<Multi_key> <m> <s> : "stale"
+EOF
+# Ensure the home copy looks older than the packaged file.
+touch -t 202001010000 "$refresh_home/.XCompose.omarchy"
+cat >"$packaged_root/default/xcompose" <<'EOF'
+include "%L"
+<Multi_key> <m> <s> : "fresh"
+EOF
+touch -t 202601010000 "$packaged_root/default/xcompose"
+
+HOME="$refresh_home" OMARCHY_PATH="$packaged_root" PATH="$packaged_root/bin:$PATH" \
+  bash "$packaged_root/bin/omarchy-refresh-xcompose"
+
+grep -Fq 'fresh' "$refresh_home/.XCompose.omarchy" \
+  || fail "refresh copies a newer packaged table into ~/.XCompose.omarchy" \
+    "$(cat "$refresh_home/.XCompose.omarchy")"
+
+# Idempotent when already current.
+before=$(cksum "$refresh_home/.XCompose.omarchy")
+HOME="$refresh_home" OMARCHY_PATH="$packaged_root" PATH="$packaged_root/bin:$PATH" \
+  bash "$packaged_root/bin/omarchy-refresh-xcompose"
+[[ $(cksum "$refresh_home/.XCompose.omarchy") == "$before" ]] \
+  || fail "refresh rewrites an already-current home table"
+
+# fcitx5 unit must refresh before start so login after package update is enough.
+grep -Eq '^ExecStartPre=/usr/bin/omarchy-refresh-xcompose$' \
+  "$ROOT/default/systemd/user/omarchy-fcitx5.service" \
+  || fail "fcitx5 unit refreshes the home-local table on start" \
+    "$(cat "$ROOT/default/systemd/user/omarchy-fcitx5.service")"
+
+pass "refresh keeps ~/.XCompose.omarchy current on the fcitx5 start path"
 
 # A missing include target must fail compile; the home-local form must succeed
 # when only $HOME is visible (the Steam/pressure-vessel shape). Skip when this
