@@ -177,7 +177,7 @@ const accounts = tailscale.parseAccounts(JSON.stringify([
 
 assertEqual(accounts.accounts.length, 2, 'tailscale parses multiple connections')
 assertEqual(accounts.selectedAccountId, 'db1b', 'tailscale records selected connection id')
-assertEqual(accounts.selectedAccountLabel, 'dhh.github', 'tailscale labels the selected connection by tailnet')
+assertEqual(accounts.selectedAccountLabel, 'Home', 'tailscale labels connections by nickname')
 assertDeepEqual(
   accounts.accounts.map(account => account.nickname),
   ['Home', 'Work'],
@@ -185,8 +185,8 @@ assertDeepEqual(
 )
 assertDeepEqual(
   accounts.accounts.map(account => tailscale.accountLabel(account)),
-  ['dhh.github', '37signals.com'],
-  'tailscale labels each connection by its tailnet when both nickname and tailnet are set'
+  ['Home', 'Work'],
+  'tailscale labels each connection by a nickname the user set over its tailnet'
 )
 assertEqual(
   tailscale.accountLabel({ nickname: '', tailnet: 'tailnet.example', account: 'user@example', id: 'abcd' }),
@@ -214,9 +214,8 @@ assertEqual(
   'tailscale labels a missing account as unknown'
 )
 
-// Issue #9259: tailscale switch --list --json returns the same nickname (account
-// identity) for every profile of one login; only tailnet differs. Preferring
-// nickname made the account switcher list identical rows.
+// Issue #9259: with no nickname set, tailscale switch --list --json reports the
+// login as the nickname of every profile of that login; only tailnet differs.
 const multiTailnet = tailscale.parseAccounts(JSON.stringify([
   {
     id: '1982',
