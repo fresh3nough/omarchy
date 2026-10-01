@@ -767,3 +767,22 @@ result=$(HOME="$NOISY_HOME" CODEX_HOME="$NOISY_HOME/.codex" XDG_CACHE_HOME="$NOI
 [[ $(jq -r '.authHelpText' <<<"$result") == "Codex app-server did not answer account/rateLimits/read" ]] ||
   fail "Codex collector reports a stall, not an exit, when a live app-server has logged" "$result"
 pass "Codex collector reports a stall, not an exit, when a live app-server has logged"
+
+# A CLI that logs plenty before failing must still show the failure, not the logging.
+CHATTY_HOME=$(mktemp -d)
+trap 'rm -rf "$TEST_HOME" "$PI_HOME" "$OPENCODE_HOME" "$CACHE_HOME" "$FRESH_HOME" "$MALFORMED_HOME" "$UNWRITABLE_HOME" "$INTERRUPTED_HOME" "$EXIT_HOME" "$DEAD_HOME" "$HALF_HOME" "$SILENT_HOME" "$STALL_HOME" "$NOISY_HOME" "$CHATTY_HOME"' EXIT
+mkdir -p "$CHATTY_HOME/bin"
+cat >"$CHATTY_HOME/bin/codex" <<'EOF'
+#!/bin/bash
+for i in {1..20}; do echo "WARN codex_core::config: ignoring unknown key number $i" >&2; done
+echo "error: failed to start app-server" >&2
+exit 1
+EOF
+chmod +x "$CHATTY_HOME/bin/codex"
+
+result=$(HOME="$CHATTY_HOME" CODEX_HOME="$CHATTY_HOME/.codex" XDG_CACHE_HOME="$CHATTY_HOME/.cache" XDG_DATA_HOME="$CHATTY_HOME/.local/share" \
+  PATH="$CHATTY_HOME/bin:$PATH" "$ROOT/bin/omarchy-agent-usage-codex" --limits-only)
+
+[[ $(jq -r '.authHelpText' <<<"$result") == "codex app-server exited: "*"error: failed to start app-server" ]] ||
+  fail "Codex collector keeps the CLI's final error past its startup logging" "$result"
+pass "Codex collector keeps the CLI's final error past its startup logging"

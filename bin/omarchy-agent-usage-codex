@@ -563,7 +563,8 @@ def codex_rpc_help(proc, stderr_file, exc):
       detail = ""
   lines = [line.strip() for line in detail.splitlines() if line.strip()]
   if lines:
-    return f"codex app-server exited: {' '.join(lines)}"[:300]
+    # The fatal error comes last, after whatever the CLI logged on the way up.
+    return f"codex app-server exited: {' '.join(lines)[-275:]}"
   # Exited cleanly with empty stderr — typical "not logged in" shape.
   return AUTH_HELP
 
