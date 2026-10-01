@@ -673,7 +673,7 @@ mkdir -p "$DEAD_HOME/bin"
 cat >"$DEAD_HOME/bin/codex" <<'EOF'
 #!/bin/bash
 exec 1>&-
-sleep 2
+exec sleep 30
 EOF
 chmod +x "$DEAD_HOME/bin/codex"
 
@@ -694,7 +694,7 @@ cat >"$HALF_HOME/bin/codex" <<'EOF'
 read -r request
 exec 0<&-
 jq -cn --argjson id "$(jq -r '.id' <<<"$request")" '{id: $id, result: {}}'
-sleep 2
+exec sleep 30
 EOF
 chmod +x "$HALF_HOME/bin/codex"
 
