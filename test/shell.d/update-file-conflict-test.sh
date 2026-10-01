@@ -322,6 +322,22 @@ fi
 [[ -e $other_modules ]] || fail "modules for a non-running kver were moved away"
 pass "only the running kernel's modules tree is eligible for auto-clear"
 
+# Headers left at the running version own build/ in that tree, so moving it
+# whole would take their files too, even though every conflict is unowned.
+fresh_work
+modules_root="$work/lib/modules"
+modules="$modules_root/$kver"
+mkdir -p "$modules/kernel" "$modules/build"
+echo "unowned-mod" >"$modules/kernel/mod.ko"
+echo "headers" >"$modules/build/Makefile"
+write_raw_report "linux: $modules/kernel/mod.ko exists in filesystem"
+if OMARCHY_RUNNING_KVER="$kver" OMARCHY_MODULES_ROOT="$modules_root" OWNED_PATHS="$modules" \
+  run_update >"$test_tmp/out" 2>"$test_tmp/err"; then
+  fail "a modules tree another package owns is cleared"
+fi
+[[ -f $modules/build/Makefile ]] || fail "files a package owns were moved with the modules tree"
+pass "a modules tree a package still owns is left in place"
+
 # The happy path must not pay for any of this.
 fresh_work
 : >"$test_tmp/report"

@@ -88,6 +88,9 @@ fi
 # omarchy update then fails with thousands of "exists in filesystem" lines until
 # reboot. When every reported conflict is an unowned path under that tree,
 # quarantine the whole tree once and retry.
+#
+# Moved whole, so only when no package owns it: headers left at the running
+# version own build/. One -Qo for the tree, not one per path, which takes minutes.
 running_kver=${OMARCHY_RUNNING_KVER:-$(uname -r)}
 modules_root=${OMARCHY_MODULES_ROOT:-/usr/lib/modules}
 running_modules="$modules_root/$running_kver"
@@ -97,13 +100,14 @@ mapfile -t module_leftovers < <(
   grep -oP '^[a-z0-9@._+-]+: \K.+(?= exists in filesystem$)' "$errors" |
     while IFS= read -r path; do
       [[ $path == "$running_modules" || $path == "$running_modules"/* ]] || continue
-      pacman -Qo "$path" &>/dev/null || echo "$path"
+      echo "$path"
     done
 )
 
 if ((${#module_leftovers[@]} > 0)) &&
   ((${#module_leftovers[@]} == filesystem_conflicts)) &&
-  [[ -e $running_modules || -L $running_modules ]]; then
+  [[ -e $running_modules || -L $running_modules ]] &&
+  ! pacman -Qo "$running_modules" &>/dev/null; then
   echo -e "\e[33m\nClearing unowned modules for the running kernel (left by kernel-modules-hook after a downgrade):\e[0m"
   sudo mkdir -p "$replaced${running_modules%/*}"
   sudo mv -T --backup=numbered "$running_modules" "$replaced$running_modules"
