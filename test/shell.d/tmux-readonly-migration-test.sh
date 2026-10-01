@@ -109,3 +109,23 @@ grep -q 'set -ag terminal-features "xterm-kitty:extkeys"' "$writable_target" ||
 grep -q 'M-S-Enter' "$writable_target" ||
   fail "writable tmux.conf should receive the pane control binds"
 pass "migration still rewrites a writable tmux.conf through its symlink"
+
+# A conf that already has the pane binds still gets the terminal-features rewrite.
+bound_home="$test_tmp/bound-home"
+mkdir -p "$bound_home/.config/tmux"
+cat >"$bound_home/.config/tmux/tmux.conf" <<'EOF'
+# Pane Controls
+bind -n M-S-Enter split-window -h -c "#{pane_current_path}"
+set -g terminal-features[3] "xterm-kitty:extkeys"
+EOF
+
+HOME="$bound_home" PATH="$test_tmp/bin:$PATH" \
+  bash -euo pipefail "$ROOT/migrations/1784401744.sh" \
+  >"$test_tmp/bound.out" 2>"$test_tmp/bound.err" ||
+  fail "migration must succeed on a tmux.conf that already has the pane binds" "$(cat "$test_tmp/bound.err")"
+
+grep -q 'set -ag terminal-features "xterm-kitty:extkeys"' "$bound_home/.config/tmux/tmux.conf" ||
+  fail "tmux.conf with the pane binds should still receive the terminal-features rewrite" "$(cat "$test_tmp/bound.out")"
+! grep -qi 'skipping tmux.conf' "$test_tmp/bound.out" ||
+  fail "a writable tmux.conf must not be reported as skipped" "$(cat "$test_tmp/bound.out")"
+pass "migration rewrites terminal-features when the pane binds are already present"

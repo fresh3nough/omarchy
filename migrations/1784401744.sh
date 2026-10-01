@@ -12,8 +12,8 @@ if [[ -f $tmux_config ]]; then
   if sed 's/^set -g terminal-features\[3\] "xterm-kitty:extkeys"$/set -ag terminal-features "xterm-kitty:extkeys"/' \
     "$tmux_config" >"$tmux_tmp" &&
     { grep -q 'M-S-Enter' "$tmux_tmp" ||
-      sed '/^# Pane Controls$/a\bind -n M-Enter split-window -v -c "#{pane_current_path}"\nbind -n M-S-Enter split-window -h -c "#{pane_current_path}"\nbind -n M-Escape kill-pane\n' \
-        "$tmux_tmp" >"${tmux_tmp}.next" && mv "${tmux_tmp}.next" "$tmux_tmp"; } &&
+      { sed '/^# Pane Controls$/a\bind -n M-Enter split-window -v -c "#{pane_current_path}"\nbind -n M-S-Enter split-window -h -c "#{pane_current_path}"\nbind -n M-Escape kill-pane\n' \
+        "$tmux_tmp" >"${tmux_tmp}.next" && mv "${tmux_tmp}.next" "$tmux_tmp"; }; } &&
     cat "$tmux_tmp" >"$tmux_config"; then
     omarchy-restart-tmux
   else
