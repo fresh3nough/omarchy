@@ -591,7 +591,11 @@ def fetch_codex_rpc(home=None):
 
   # Regular file, not a PIPE: an unread stderr pipe can fill and deadlock a
   # chatty app-server. Only read on failure after the process has exited.
-  stderr_file = tempfile.TemporaryFile("w+", errors="replace")
+  try:
+    stderr_file = tempfile.TemporaryFile("w+", errors="replace")
+  except OSError:
+    # No temp space is no reason to skip the probe; it only costs the CLI's own error text.
+    stderr_file = None
   try:
     # -a never: non-interactive probe; never prompts. on-request is also valid
     # on codex-cli >= 0.149, but never matches the old untrusted "do not ask"
@@ -600,12 +604,13 @@ def fetch_codex_rpc(home=None):
       [codex, "-s", "read-only", "-a", "never", "app-server"],
       stdin=subprocess.PIPE,
       stdout=subprocess.PIPE,
-      stderr=stderr_file,
+      stderr=stderr_file or subprocess.DEVNULL,
       text=True,
       env=env,
     )
   except Exception as exc:
-    stderr_file.close()
+    if stderr_file:
+      stderr_file.close()
     result["usageStatusText"] = "Codex unavailable"
     result["authHelpText"] = str(exc)
     return result
@@ -665,7 +670,8 @@ def fetch_codex_rpc(home=None):
         proc.kill()
       except Exception:
         pass
-    stderr_file.close()
+    if stderr_file:
+      stderr_file.close()
   return result
 
 
