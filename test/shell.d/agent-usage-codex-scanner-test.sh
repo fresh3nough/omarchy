@@ -752,3 +752,18 @@ help=$(jq -r '.authHelpText' <<<"$result")
 [[ $help != "account/rateLimits/read" && $help != "initialize" ]] ||
   fail "Codex collector must not leak a bare method name" "$result"
 pass "Codex collector names a stalled RPC instead of leaking the method name"
+
+# A stalled app-server that has logged to stderr is still running: its logging
+# is not why it stopped, and it has not exited.
+NOISY_HOME=$(mktemp -d)
+trap 'rm -rf "$TEST_HOME" "$PI_HOME" "$OPENCODE_HOME" "$CACHE_HOME" "$FRESH_HOME" "$MALFORMED_HOME" "$UNWRITABLE_HOME" "$INTERRUPTED_HOME" "$EXIT_HOME" "$DEAD_HOME" "$HALF_HOME" "$SILENT_HOME" "$STALL_HOME" "$NOISY_HOME"' EXIT
+mkdir -p "$NOISY_HOME/bin"
+sed 's/^while read/echo "WARN codex_core: startup notice" >\&2\nwhile read/' "$STALL_HOME/bin/codex" >"$NOISY_HOME/bin/codex"
+chmod +x "$NOISY_HOME/bin/codex"
+
+result=$(HOME="$NOISY_HOME" CODEX_HOME="$NOISY_HOME/.codex" XDG_CACHE_HOME="$NOISY_HOME/.cache" XDG_DATA_HOME="$NOISY_HOME/.local/share" \
+  PATH="$NOISY_HOME/bin:$PATH" "$ROOT/bin/omarchy-agent-usage-codex" --limits-only)
+
+[[ $(jq -r '.authHelpText' <<<"$result") == "Codex app-server did not answer account/rateLimits/read" ]] ||
+  fail "Codex collector reports a stall, not an exit, when a live app-server has logged" "$result"
+pass "Codex collector reports a stall, not an exit, when a live app-server has logged"

@@ -539,14 +539,20 @@ def codex_rpc_help(proc, stderr_file, exc):
   rpc_request used to raise TimeoutError(method), so a dead CLI left the panel
   showing just "initialize". Prefer, in order:
 
-  1. The CLI's own stderr (names a dropped/renamed flag).
-  2. Exception text when the process is still running (stall / parse error).
+  1. Exception text when the process is still running (stall / parse error).
+  2. The CLI's own stderr once it has exited (names a dropped/renamed flag).
   3. The login hint when the process exited with nothing useful to say.
   """
   try:
     proc.wait(timeout=1)
   except Exception:
     pass
+
+  text = str(exc).strip()
+  if proc.poll() is None:
+    # Still up: stall or unparseable payload. Not an auth problem, and any
+    # stderr so far is its logging, not why it stopped.
+    return text[:300] or AUTH_HELP
 
   detail = ""
   if stderr_file is not None:
@@ -558,11 +564,6 @@ def codex_rpc_help(proc, stderr_file, exc):
   lines = [line.strip() for line in detail.splitlines() if line.strip()]
   if lines:
     return f"codex app-server exited: {' '.join(lines)}"[:300]
-
-  text = str(exc).strip()
-  if proc.poll() is None:
-    # Still up: stall or unparseable payload. Not an auth problem.
-    return text[:300] or AUTH_HELP
   # Exited cleanly with empty stderr — typical "not logged in" shape.
   return AUTH_HELP
 
