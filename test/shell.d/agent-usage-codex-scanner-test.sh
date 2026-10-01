@@ -26,10 +26,17 @@ while read -r request; do
       jq -cn --argjson id "$id" '{id: $id, result: {}}'
       ;;
     account/read)
-      jq -cn --argjson id "$id" '{id: $id, result: {account: {}}}'
+      # Codex 0.158 can leave this one unanswered for good.
+      [[ -n ${CODEX_ACCOUNT_READ_HANGS:-} ]] ||
+        jq -cn --argjson id "$id" '{id: $id, result: {account: {}}}'
       ;;
     account/rateLimits/read)
-      jq -cn --argjson id "$id" '{id: $id, result: {rateLimits: {}}}'
+      if [[ -n ${CODEX_LIMITS_ERROR:-} ]]; then
+        jq -cn --argjson id "$id" --arg message "$CODEX_LIMITS_ERROR" '{id: $id, error: {code: -32600, message: $message}}'
+        continue
+      fi
+      jq -cn --argjson id "$id" --argjson limits "${CODEX_RATE_LIMITS:-{\}}" --argjson credits "${CODEX_RESET_CREDITS:-null}" \
+        '{id: $id, result: {rateLimits: $limits, rateLimitResetCredits: $credits}}'
       ;;
   esac
 done
@@ -604,6 +611,36 @@ result=$(HOME="$INTERRUPTED_HOME" CODEX_HOME="$INTERRUPTED_HOME/.codex" XDG_CACH
   fail "Codex collector does not reuse a snapshot from an interrupted scan" "$result"
 pass "Codex collector does not cache an interrupted opencode scan"
 
+# The limits name the plan themselves, so an account/read that never answers
+# costs nothing: the limits still arrive, and quickly.
+started=$(date +%s)
+result=$(HOME="$TEST_HOME" CODEX_HOME="$TEST_HOME/.codex" XDG_DATA_HOME="$TEST_HOME/.local/share" PATH="$TEST_HOME/bin:$PATH" \
+  CODEX_ACCOUNT_READ_HANGS=1 CODEX_RATE_LIMITS='{"planType":"pro","primary":{"usedPercent":36,"windowDurationMins":10080}}' \
+  "$ROOT/bin/omarchy-agent-usage-codex" --limits-only)
+(( $(date +%s) - started < 4 )) || fail "Codex collector doesn't wait on account/read when the limits name the plan"
+[[ $(jq -c '{tierLabel, usageStatusText, limits: [.limits[] | {label, percent}]}' <<<"$result") == '{"tierLabel":"pro","usageStatusText":"","limits":[{"label":"Weekly (7-day)","percent":0.36}]}' ]] ||
+  fail "Codex collector reads limits even when account/read never answers" "$result"
+pass "Codex collector reads limits even when account/read never answers"
+
+# Free full resets ride along with the limits: only available ones count, and
+# the soonest to lapse is the one worth mentioning.
+result=$(HOME="$TEST_HOME" CODEX_HOME="$TEST_HOME/.codex" XDG_DATA_HOME="$TEST_HOME/.local/share" PATH="$TEST_HOME/bin:$PATH" \
+  CODEX_RATE_LIMITS='{"planType":"pro","primary":{"usedPercent":42,"windowDurationMins":10080}}' \
+  CODEX_RESET_CREDITS='{"availableCount":2,"credits":[{"status":"available","expiresAt":2000000000},{"status":"available","expiresAt":1900000000},{"status":"used","expiresAt":1800000000}]}' \
+  "$ROOT/bin/omarchy-agent-usage-codex" --limits-only)
+[[ $(jq -c '.resetCredits' <<<"$result") == '{"available":2,"nextExpiresAt":"2030-03-17T17:46:40+00:00"}' ]] ||
+  fail "Codex collector reports its available free resets" "$result"
+pass "Codex collector reports its available free resets"
+
+# A home nobody is signed in to answers with an error, which reads as a
+# sign-in to restore rather than as missing numbers.
+result=$(HOME="$TEST_HOME" CODEX_HOME="$TEST_HOME/.codex" XDG_DATA_HOME="$TEST_HOME/.local/share" PATH="$TEST_HOME/bin:$PATH" \
+  CODEX_LIMITS_ERROR="codex account authentication required to read rate limits" \
+  "$ROOT/bin/omarchy-agent-usage-codex" --limits-only)
+[[ $(jq -r '.usageStatusText' <<<"$result") == "Waiting for auth" ]] ||
+  fail "Codex collector reports a missing sign-in as one" "$result"
+pass "Codex collector reports a missing sign-in as one"
+
 # A codex that exits before speaking the protocol (rejected flag, crash, etc.)
 # must not leave the panel showing the bare RPC method name "initialize".
 EXIT_HOME=$(mktemp -d)
@@ -687,7 +724,7 @@ help=$(jq -r '.authHelpText' <<<"$result")
   fail "Codex collector falls back to the login hint when the CLI is silent" "$result"
 pass "Codex collector falls back to the login hint when the app-server says nothing"
 
-# Live app-server that stalls on account/read: keep a clear stall message, not login.
+# Live app-server that stalls on account/rateLimits/read: keep a clear stall message, not login.
 STALL_HOME=$(mktemp -d)
 trap 'rm -rf "$TEST_HOME" "$PI_HOME" "$OPENCODE_HOME" "$CACHE_HOME" "$FRESH_HOME" "$MALFORMED_HOME" "$UNWRITABLE_HOME" "$INTERRUPTED_HOME" "$EXIT_HOME" "$DEAD_HOME" "$HALF_HOME" "$SILENT_HOME" "$STALL_HOME"' EXIT
 mkdir -p "$STALL_HOME/bin"
@@ -698,7 +735,7 @@ while read -r request; do
   method=$(jq -r '.method // empty' <<<"$request")
   case "$method" in
     initialize) jq -cn --argjson id "$id" '{id: $id, result: {}}' ;;
-    account/read) : ;;
+    account/rateLimits/read) : ;;
   esac
 done
 EOF
@@ -710,8 +747,8 @@ result=$(HOME="$STALL_HOME" CODEX_HOME="$STALL_HOME/.codex" XDG_CACHE_HOME="$STA
 help=$(jq -r '.authHelpText' <<<"$result")
 [[ $help != "Run \`codex login\` to authenticate." ]] ||
   fail "Codex collector must not blame auth when the app-server is merely stalled" "$result"
-[[ $help == "Codex app-server did not answer account/read" ]] ||
+[[ $help == "Codex app-server did not answer account/rateLimits/read" ]] ||
   fail "Codex collector names the stalled RPC method clearly" "$result"
-[[ $help != "account/read" && $help != "initialize" ]] ||
+[[ $help != "account/rateLimits/read" && $help != "initialize" ]] ||
   fail "Codex collector must not leak a bare method name" "$result"
 pass "Codex collector names a stalled RPC instead of leaking the method name"
