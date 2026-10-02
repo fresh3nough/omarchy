@@ -41,6 +41,16 @@ printf '%s\n' "$*" >>"$OMARCHY_TEST_DBUS_OUT"
 SH
 chmod +x "$stub_bin/dbus-update-activation-environment"
 
+cat >"$stub_bin/sed" <<SH
+#!/bin/bash
+
+if [[ \$1 == "-i" && \${OMARCHY_TEST_SED_FAIL:-0} == 1 ]]; then
+  exit 4
+fi
+exec $(command -v sed) "\$@"
+SH
+chmod +x "$stub_bin/sed"
+
 write_monitor_config() {
   cat >"$monitor_lua" <<'LUA'
 local omarchy_gdk_scale = 2
@@ -59,6 +69,7 @@ run_scaling() {
     OMARCHY_TEST_MONITOR_SCALE="${OMARCHY_TEST_MONITOR_SCALE:-2}" \
     OMARCHY_TEST_HYPR_ENV_FAIL="${OMARCHY_TEST_HYPR_ENV_FAIL:-0}" \
     OMARCHY_TEST_DBUS_FAIL="${OMARCHY_TEST_DBUS_FAIL:-0}" \
+    OMARCHY_TEST_SED_FAIL="${OMARCHY_TEST_SED_FAIL:-0}" \
     "$ROOT/bin/omarchy-hyprland-monitor-scaling" "$@"
 }
 
@@ -253,3 +264,14 @@ grep -Fq 'Failed to update systemd and D-Bus GDK_SCALE environment' "$test_tmp/d
 grep -Fx 'hl.env("GDK_SCALE", "1")' "$eval_out" >/dev/null ||
   fail "monitor scaling updates Hyprland before a D-Bus sync failure"
 pass "monitor scaling reports D-Bus environment sync failures"
+
+write_monitor_config
+set +e
+OMARCHY_TEST_SED_FAIL=1 run_scaling 1 2>/dev/null
+status=$?
+set -e
+(( status != 0 )) || fail "monitor scaling fails when monitors.lua cannot be written"
+if grep -Fq 'hl.env(' "$eval_out" || [[ -s $dbus_out ]]; then
+  fail "monitor scaling does not propagate GDK scale when monitors.lua cannot be written"
+fi
+pass "monitor scaling reports a failed monitors.lua write"
