@@ -35,9 +35,7 @@ monitors_have_fractional_scale() {
 }
 
 if [[ $terminal == *ghostty* ]] && monitors_have_fractional_scale; then
-  if omarchy-cmd-present foot; then
-    terminal=foot
-  fi
+  terminal=foot
 fi
 
 hypr_focus_monitor() {
