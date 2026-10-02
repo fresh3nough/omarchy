@@ -98,3 +98,18 @@ HOME="$test_tmp/home" bash -euo pipefail "$migration"
 count=$(grep -c 'require_optional.module("hypr.envs")' "$test_tmp/home/.config/hypr/hyprland.lua" || true)
 (( count == 1 )) || fail "migration is idempotent" "count=$count"
 pass "migration is idempotent"
+
+# A commented-out require is not a loader, and a single-quoted, indented autostart is still the anchor.
+mkdir -p "$test_tmp/custom/.config/hypr"
+cat >"$test_tmp/custom/.config/hypr/hyprland.lua" <<'LUA'
+require("default.hypr.omarchy")
+-- require("hypr.envs")
+  require('hypr.autostart')
+require("default.hypr.toggles")
+LUA
+
+HOME="$test_tmp/custom" bash -euo pipefail "$migration"
+grep -A3 "require('hypr.autostart')" "$test_tmp/custom/.config/hypr/hyprland.lua" |
+  grep -F 'require_optional.module("hypr.envs")' >/dev/null ||
+  fail "migration inserts after a customized autostart despite a commented require" "$(cat "$test_tmp/custom/.config/hypr/hyprland.lua")"
+pass "migration inserts after a customized autostart despite a commented require"
