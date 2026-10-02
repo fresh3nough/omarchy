@@ -21,13 +21,8 @@ case $terminal in
   ;;
 esac
 
-# On fractionally scaled outputs, a large Ghostty fullscreen (or near-fullscreen)
-# resize can leave the last pre-resize frame stuck — blank theme-background
-# screensaver until dismiss (issue #10420). That often traces to compositor
-# import of Ghostty's GPU dmabufs failing across devices (EGL_BAD_MATCH); foot
-# uses shm buffers any GPU can display. Prefer foot for the screensaver only
-# when any output is non-integer scale. Integer-scale Ghostty is unchanged, and
-# Ghostty remains the default terminal everywhere else.
+# Fullscreen Ghostty on a fractionally scaled output stays a blank background (#10420),
+# so any fractional output sends every screensaver to foot.
 monitors_have_fractional_scale() {
   hyprctl monitors -j 2>/dev/null | jq -e '
     any(.[]; (.scale | type == "number") and (.scale != (.scale | floor)))
