@@ -33,10 +33,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
-ln -s "$ROOT/shell/Ui" "$TMPDIR/Ui"
-ln -s "$ROOT/shell/Commons" "$TMPDIR/Commons"
+config_dir="$TMPDIR/confirm-dialog"
+mkdir -p "$config_dir" "$TMPDIR/home"
+ln -s "$ROOT/shell/Ui" "$config_dir/Ui"
+ln -s "$ROOT/shell/Commons" "$config_dir/Commons"
 
-cat >"$TMPDIR/shell.qml" <<'QML'
+cat >"$config_dir/shell.qml" <<'QML'
 import QtQuick
 import Quickshell
 import qs.Commons
@@ -45,13 +47,13 @@ import qs.Ui
 ShellRoot {
   id: root
 
-  // [host width, cancel, confirm, expected confirm button width, or 0 for grown past the minimum]
+  // [host width, cancel, confirm, how the confirm button should size]
   property var cases: [
-    [600, "Cancel", "Delete", Style.space(88)],
-    [600, "Cancel", "Delete permanently", 0],
-    [600, "Abbrechen", "Endgültig löschen", 0],
-    [600, "Cancel", "Delete every clipboard entry permanently and forever", 0],
-    [260, "Cancel", "Delete permanently", 0]
+    [600, "Cancel", "Delete", "minimum"],
+    [600, "Cancel", "Delete permanently", "grown"],
+    [600, "Abbrechen", "Endgültig löschen", "grown"],
+    [600, "Cancel", "Delete every clipboard entry permanently and forever", "capped"],
+    [260, "Cancel", "Delete permanently", "capped"]
   ]
   property int current: 0
 
@@ -72,6 +74,7 @@ ShellRoot {
     var buttons = find(card, function(item) { return item.hasOwnProperty("modelData") && item.hasOwnProperty("destructive") }, [])
 
     if (buttons.length !== 2) return fail("expected two buttons, found " + buttons.length)
+    buttons[0].parent.forceLayout()
 
     for (var i = 0; i < buttons.length; i++) {
       var button = buttons[i]
@@ -86,11 +89,21 @@ ShellRoot {
         return fail(name + " leaves the card")
     }
 
-    var expected = c[3]
-    if (expected && buttons[1].width !== expected)
-      return fail("'" + c[2] + "' is " + buttons[1].width + "px wide, expected " + expected)
-    if (!expected && buttons[1].width <= Style.space(88))
-      return fail("'" + c[2] + "' did not grow past the minimum width")
+    var confirm = buttons[1]
+    var confirmLabel = find(confirm, function(item) { return item.hasOwnProperty("elide") }, [])[0]
+    var content = card.width - card.contentLeftInset - card.contentRightInset
+    var cap = Math.floor((content - Style.space(10)) / 2)
+    var size = c[3]
+    var name = "'" + c[2] + "' in a " + c[0] + "px host"
+
+    if (size === "minimum" && confirm.width !== Style.space(88))
+      return fail(name + " is " + confirm.width + "px wide, expected the " + Style.space(88) + "px minimum")
+    if (size === "grown" && (confirm.width <= Style.space(88) || confirmLabel.truncated))
+      return fail(name + " is " + confirm.width + "px wide and truncated=" + confirmLabel.truncated + ", expected to grow and show in full")
+    if (size === "capped" && (confirm.width !== cap || !confirmLabel.truncated))
+      return fail(name + " is " + confirm.width + "px wide and truncated=" + confirmLabel.truncated + ", expected to elide at the " + cap + "px cap")
+    if (size !== "capped" && confirmLabel.truncated)
+      return fail(name + " elides although it fits")
 
     current++
     if (current >= cases.length) {
@@ -126,7 +139,9 @@ ShellRoot {
 }
 QML
 
-output=$(timeout 15 quickshell -p "$TMPDIR" --no-color 2>&1) || {
+# Keep the user's and the theme's shell.toml, which can change font sizes, out of the geometry.
+output=$(HOME="$TMPDIR/home" XDG_CONFIG_HOME="$TMPDIR/home/.config" XDG_STATE_HOME="$TMPDIR/home/.local/state" \
+  timeout 15 quickshell -p "$config_dir" --no-color 2>&1) || {
   printf '%s\n' "$output" >&2
   fail "ConfirmDialog button geometry runtime fixture exits cleanly"
 }
