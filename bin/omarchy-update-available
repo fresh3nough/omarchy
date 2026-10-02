@@ -30,12 +30,7 @@ fi
 if [[ -n $package ]]; then
   checkupdates_exit=0
   checkupdates_output=$(checkupdates --nocolor 2>/dev/null) || checkupdates_exit=$?
-  # checkupdates exits 2 on error; 0 or 1 otherwise (0=updates, 1=none).
-  # Pass through the failure so the widget doesn't hide a pending update
-  # as "up to date" (#9798).
-  if (( checkupdates_exit == 2 )); then
-    exit 2
-  fi
+  # checkupdates exits 0 with updates, 2 with none, and 1 when the check itself failed.
   update=$(awk -v package="$package" '$1 == package { print; exit }' <<<"$checkupdates_output" || true)
 fi
 
@@ -46,6 +41,9 @@ fi
 if (( ${#updates[@]} > 0 )); then
   printf '%s\n' "${updates[@]}"
   exit 0
+elif (( ${checkupdates_exit:-0} == 1 )); then
+  echo "Could not check for Omarchy updates" >&2
+  exit 2
 else
   echo "Omarchy is up to date"
   exit 1

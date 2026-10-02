@@ -166,6 +166,29 @@ fi
 grep -q '^Omarchy is up to date$' "$stdout" || fail "update checker prints up-to-date message"
 pass "update checker reports up-to-date Omarchy packages"
 
+if capture_checker "$stdout" "$stderr" TEST_CHECKUPDATES=fail TEST_INSTALLED_PACKAGE=omarchy; then
+  status=0
+else
+  status=$?
+fi
+[[ $status -eq 2 ]] || fail "update checker exits 2 when checkupdates fails" "got $status"
+! grep -q 'up to date' "$stdout" || fail "update checker does not call a failed check up to date"
+pass "update checker reports a failed package check as a failure"
+
+if capture_checker "$stdout" "$stderr" \
+  TEST_CHECKUPDATES=fail \
+  TEST_INSTALLED_PACKAGE=omarchy \
+  TEST_OMARCHY_PATH="$test_tmp/checkout" \
+  TEST_GIT_BEHIND=2; then
+  status=0
+else
+  status=$?
+fi
+[[ $status -eq 0 ]] || fail "update checker reports dev commits when checkupdates fails" "got $status"
+grep -Fx 'omarchy-dev-checkout 2 new commits on origin/quattro' "$stdout" >/dev/null ||
+  fail "update checker prints dev commits when checkupdates fails" "$(cat "$stdout")"
+pass "update checker keeps known dev commits when the package check fails"
+
 : >"$git_log"
 if capture_checker "$stdout" "$stderr" \
   TEST_CHECKUPDATES=none \
