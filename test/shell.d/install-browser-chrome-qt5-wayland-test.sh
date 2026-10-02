@@ -4,10 +4,8 @@ set -euo pipefail
 
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
-# Chrome install must pull qt5-wayland so libqt5_shim can find the Wayland
+# Where qt5-base is installed, Chrome needs qt5-wayland so libqt5_shim can find the Wayland
 # platform plugin under Omarchy's QT_QPA_PLATFORM=wayland;xcb (issue #10488).
-
-require_command rg
 
 test_tmp=$(mktemp -d)
 trap 'rm -rf "$test_tmp"' EXIT
