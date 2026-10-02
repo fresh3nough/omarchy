@@ -27,10 +27,13 @@ elif pacman -Qq omarchy >/dev/null 2>&1; then
   package=omarchy
 fi
 
+check_failed=0
+
 if [[ -n $package ]]; then
   checkupdates_exit=0
   checkupdates_output=$(checkupdates --nocolor 2>/dev/null) || checkupdates_exit=$?
-  # checkupdates exits 0 with updates, 2 with none, and 1 when the check itself failed.
+  # checkupdates exits 0 with updates and 2 with none; anything else means the check failed.
+  (( checkupdates_exit == 0 || checkupdates_exit == 2 )) || check_failed=1
   update=$(awk -v package="$package" '$1 == package { print; exit }' <<<"$checkupdates_output" || true)
 fi
 
@@ -41,7 +44,7 @@ fi
 if (( ${#updates[@]} > 0 )); then
   printf '%s\n' "${updates[@]}"
   exit 0
-elif (( ${checkupdates_exit:-0} == 1 )); then
+elif (( check_failed )); then
   echo "Could not check for Omarchy updates" >&2
   exit 2
 else
