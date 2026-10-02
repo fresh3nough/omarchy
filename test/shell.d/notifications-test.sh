@@ -739,4 +739,16 @@ assert(
   /function iconSource\(icon\)/.test(cardQml) && /Quickshell\.iconPath\(value,\s*true\)/.test(cardQml),
   'notifications card iconSource checks themed names before painting'
 )
+
+// Quickshell 0.3 turns an image-path that is not a file: URI into image://icon/<name>, so run
+// iconSource itself against a stand-in theme that knows only dialog-information.
+const cardIconSource = new Function('Quickshell', 'Util', `${/  function iconSource\(icon\) \{[\s\S]*?\n  \}/.exec(cardQml)[0]}\nreturn iconSource`)(
+  { iconPath: (name, check) => (check && name !== 'dialog-information' ? '' : `image://icon/${name}`) },
+  { fileUrl: (path) => `file://${path}` }
+)
+assertEqual(cardIconSource('image://icon/definitely-not-an-installed-icon'), '', 'notifications card hides an image-path theme name the theme lacks')
+assertEqual(cardIconSource('image://icon/dialog-information'), 'image://icon/dialog-information', 'notifications card keeps an image-path theme name the theme has')
+assertEqual(cardIconSource('image://icon//tmp/avatar.png'), 'image://icon//tmp/avatar.png', 'notifications card leaves an absolute image-path to the icon provider')
+assertEqual(cardIconSource('image://icon/app?path=/tmp'), 'image://icon/app?path=/tmp', 'notifications card leaves icon provider queries alone')
+assertEqual(cardIconSource('image://qsimage/1/2'), 'image://qsimage/1/2', 'notifications card leaves image-data URLs alone')
 JS
