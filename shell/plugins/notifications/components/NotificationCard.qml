@@ -62,7 +62,7 @@ BorderSurface {
     if (value.length === 0) return ""
     // Quickshell hands an image-path theme name over as image://icon/<name>; check it like any other name.
     if (/^image:\/\/icon\/[^\/?][^?]*$/.test(value)) return Quickshell.iconPath(value.substring(13), true)
-    if (value.indexOf("file://") === 0 || value.indexOf("image://") === 0) return value
+    if (value.indexOf("file:/") === 0 || value.indexOf("image://") === 0) return value
     if (value.charAt(0) === "/") return Util.fileUrl(value)
     return Quickshell.iconPath(value, true)
   }

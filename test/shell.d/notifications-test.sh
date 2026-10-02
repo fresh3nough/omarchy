@@ -751,4 +751,6 @@ assertEqual(cardIconSource('image://icon/dialog-information'), 'image://icon/dia
 assertEqual(cardIconSource('image://icon//tmp/avatar.png'), 'image://icon//tmp/avatar.png', 'notifications card leaves an absolute image-path to the icon provider')
 assertEqual(cardIconSource('image://icon/app?path=/tmp'), 'image://icon/app?path=/tmp', 'notifications card leaves icon provider queries alone')
 assertEqual(cardIconSource('image://qsimage/1/2'), 'image://qsimage/1/2', 'notifications card leaves image-data URLs alone')
+assertEqual(cardIconSource('file:/tmp/avatar.png'), 'file:/tmp/avatar.png', 'notifications card loads a single-slash file: image-path as given')
+assertEqual(cardIconSource('file:///tmp/avatar.png'), 'file:///tmp/avatar.png', 'notifications card loads a file:// image-path as given')
 JS
