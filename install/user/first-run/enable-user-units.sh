@@ -28,25 +28,20 @@ units=(
 
 systemctl --user daemon-reload
 
-failed=0
+enabled=0
 for unit in "${units[@]}"; do
-  if ! systemctl --user enable --now "$unit"; then
+  if systemctl --user enable --now "$unit"; then
+    enabled=1
+  else
     echo "warning: could not enable $unit" >&2
-    failed=1
   fi
 done
 
 omarchy-hook-install theme-set /usr/share/owe/10-owe-sync
 
-# Non-zero only if every unit failed — a single missing unit must not block
-# first-run completion or the remaining units that did enable.
-if (( failed )) && ! systemctl --user is-enabled --quiet bt-agent.service 2>/dev/null &&
-  ! systemctl --user is-enabled --quiet owed.service 2>/dev/null &&
-  ! systemctl --user is-enabled --quiet omarchy-fcitx5.service 2>/dev/null &&
-  ! systemctl --user is-enabled --quiet omarchy-crash-watch.service 2>/dev/null &&
-  ! systemctl --user is-enabled --quiet omarchy-sleep-lock.service 2>/dev/null &&
-  ! systemctl --user is-enabled --quiet omarchy-migrate-notify.service 2>/dev/null &&
-  ! systemctl --user is-enabled --quiet omarchy-recover-internal-monitor.service 2>/dev/null; then
+# A unit that fails must not fail the step while others enabled, or first-run
+# never completes; fail it only when none did.
+if (( ! enabled )); then
   echo "error: no omarchy user units could be enabled" >&2
   exit 1
 fi

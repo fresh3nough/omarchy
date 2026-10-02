@@ -32,19 +32,10 @@ cat >"$mock_bin/systemctl" <<'SH'
 printf '%s\n' "$*" >>"$OMARCHY_TEST_SYSTEMCTL_LOG"
 # daemon-reload always succeeds.
 [[ $1 == "--user" && $2 == "daemon-reload" ]] && exit 0
-# is-enabled: treat any previously successful enable --now as enabled.
-if [[ $1 == "--user" && $2 == "is-enabled" ]]; then
-  unit=${4:-$3}
-  [[ $unit == --quiet ]] && unit=$4
-  if grep -Fq "enable --now $unit" "$OMARCHY_TEST_SYSTEMCTL_LOG" 2>/dev/null; then
-    exit 0
-  fi
-  exit 1
-fi
-# enable --now: fail only the injected missing unit.
+# enable --now: fail the injected missing unit, or every unit.
 if [[ $1 == "--user" && $2 == "enable" && $3 == "--now" ]]; then
   unit=$4
-  if [[ $unit == "${OMARCHY_TEST_MISSING_UNIT:-}" ]]; then
+  if [[ $unit == "${OMARCHY_TEST_MISSING_UNIT:-}" || -n ${OMARCHY_TEST_ALL_MISSING:-} ]]; then
     echo "Failed to enable unit: Unit $unit does not exist" >&2
     exit 1
   fi
@@ -114,3 +105,12 @@ for unit in bt-agent.service owed.service omarchy-recover-internal-monitor.servi
     fail "enable-user-units enables $unit" "$(cat "$log")"
 done
 pass "enable-user-units enables every shipped unit when all exist"
+
+# No unit enables → first-run must see the step fail.
+: >"$log"
+status=0
+OMARCHY_TEST_ALL_MISSING=1 PATH="$mock_bin:/usr/bin:/bin" bash "$script" >"$test_tmp/out" 2>"$test_tmp/err" || status=$?
+(( status != 0 )) || fail "enable-user-units fails when no unit could be enabled" "$(cat "$test_tmp/err")"
+grep -F 'no omarchy user units could be enabled' "$test_tmp/err" >/dev/null ||
+  fail "enable-user-units says why it failed" "$(cat "$test_tmp/err")"
+pass "enable-user-units fails when no unit could be enabled"
