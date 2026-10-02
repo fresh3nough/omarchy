@@ -18,6 +18,7 @@ set -euo pipefail
 
 units=(
   bt-agent.service
+  owed.service
   omarchy-recover-internal-monitor.service
   omarchy-sleep-lock.service
   omarchy-migrate-notify.service
@@ -35,9 +36,12 @@ for unit in "${units[@]}"; do
   fi
 done
 
+omarchy-hook-install theme-set /usr/share/owe/10-owe-sync
+
 # Non-zero only if every unit failed — a single missing unit must not block
 # first-run completion or the remaining units that did enable.
 if (( failed )) && ! systemctl --user is-enabled --quiet bt-agent.service 2>/dev/null &&
+  ! systemctl --user is-enabled --quiet owed.service 2>/dev/null &&
   ! systemctl --user is-enabled --quiet omarchy-fcitx5.service 2>/dev/null &&
   ! systemctl --user is-enabled --quiet omarchy-crash-watch.service 2>/dev/null &&
   ! systemctl --user is-enabled --quiet omarchy-sleep-lock.service 2>/dev/null &&
