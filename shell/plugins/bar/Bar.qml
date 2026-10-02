@@ -717,15 +717,12 @@ Item {
     // nearestDropTarget can resolve the correct region when no real slots
     // occupy that area. The candidate is 1 px wide and sits flush with the
     // section boundary; it only wins when the cursor is inside an empty zone.
-    var barBounds = { x: 0, y: 0, width: 1, height: 1 }
-    try {
-      barBounds = root.mapToItem(null, 0, 0)
-      barBounds.width = root.width
-      barBounds.height = root.height
-    } catch (e) {}
+    // Bounds come from the bar window, whose scene the slots and scenePoint share.
+    var bar = sourceWindow ? sourceWindow.contentItem : null
+    var barBounds = { x: 0, y: 0, width: bar ? bar.width : 0, height: bar ? bar.height : 0 }
 
     function addEmptyRegionCandidate(region, edgeX, edgeY) {
-      if (seenRegions[region]) return
+      if (!bar || seenRegions[region]) return
       candidates.push({
         slot: { region: region, moduleName: "" },
         x: edgeX, y: edgeY,
