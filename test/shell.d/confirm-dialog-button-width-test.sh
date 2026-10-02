@@ -4,84 +4,136 @@ set -euo pipefail
 
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
-DIALOG="$ROOT/shell/Ui/ConfirmDialog.qml"
-
-[[ -f $DIALOG ]] || fail "ConfirmDialog.qml is missing"
-
 run_node_test <<'JS'
 const fs = require('fs')
 
 const qml = fs.readFileSync(path.join(root, 'shell/Ui/ConfirmDialog.qml'), 'utf8')
-const clipboard = fs.readFileSync(path.join(root, 'shell/plugins/clipboard/Clipboard.qml'), 'utf8')
-const menu = fs.readFileSync(path.join(root, 'shell/plugins/menu/Menu.qml'), 'utf8')
 
-// Fixed 88px width is the overflow bug: long confirmText paints past the frame.
+// A fixed 88px width with an unbounded label is the overflow bug.
 assert(
   !/^\s*width:\s*Style\.space\(88\)\s*$/m.test(qml),
-  'confirm buttons must not hardcode a fixed Style.space(88) width'
+  'confirm buttons do not hardcode a fixed Style.space(88) width'
 )
 
-assert(
-  /minWidth:\s*Style\.space\(88\)/.test(qml),
-  'confirm buttons keep Style.space(88) as the minimum width'
-)
-
-assert(
-  /width:\s*Math\.min\(\s*maxWidth\s*,\s*Math\.max\(\s*minWidth\s*,\s*label\.implicitWidth\s*\+\s*labelPadding\s*\*\s*2\s*\)\s*\)/.test(qml),
-  'confirm button width grows with the label up to a card-aware max'
-)
-
-assert(
-  /maxWidth:\s*\{[\s\S]*card\.width[\s\S]*\/\s*2[\s\S]*\}/.test(qml) ||
-    /half\s*=\s*Math\.floor\(\(content\s*-\s*Style\.space\(10\)\)\s*\/\s*2\)/.test(qml),
-  'confirm button max width is half the card content so both buttons fit'
-)
-
-assert(
-  /id:\s*label/.test(qml) &&
-    /elide:\s*Text\.ElideRight/.test(qml) &&
-    /width:\s*Math\.min\(\s*implicitWidth\s*,\s*parent\.width\s*-\s*labelPadding\s*\*\s*2\s*\)/.test(qml),
-  'confirm label is width-constrained and elides inside the button frame'
-)
-
-assert(
-  /horizontalAlignment:\s*Text\.AlignHCenter/.test(qml),
-  'confirm label stays centered while eliding'
-)
-
-// First-party callers still use short English labels that fit the minimum.
-assert(
-  /confirmText:\s*"Delete"/.test(clipboard),
-  'clipboard clear confirm keeps short Delete label'
-)
-assert(
-  /confirmText:\s*"Uninstall"/.test(menu),
-  'menu uninstall confirm keeps short Uninstall label'
-)
-
-// Sizing model: short labels stay at minWidth; long labels grow then cap.
-function buttonWidth(textPx, minW, maxW, pad) {
-  return Math.min(maxW, Math.max(minW, textPx + pad * 2))
-}
-
-const minW = 88
-const pad = 12
-// Card content for default Style.space(370) card with Style.space(18) padding
-// and 1px borders is roughly 370 - 2*(18+1) = 332; half minus gap ≈ 161.
-const maxW = Math.max(minW, Math.floor((332 - 10) / 2))
-
-assertEqual(buttonWidth(37, minW, maxW, pad), minW, 'Cancel-sized label stays at the 88px minimum')
-assertEqual(buttonWidth(54, minW, maxW, pad), minW, 'Uninstall-sized label stays at the 88px minimum')
-assertEqual(buttonWidth(109, minW, maxW, pad), 109 + pad * 2, 'Delete permanently grows past 88px')
-assert(
-  buttonWidth(109, minW, maxW, pad) <= maxW,
-  'grown button still fits beside its pair inside the card'
-)
-assertEqual(
-  buttonWidth(400, minW, maxW, pad),
-  maxW,
-  'extreme labels cap at half the card and rely on elide inside the frame'
-)
+assert(/elide:\s*Text\.ElideRight/.test(qml), 'confirm button labels elide')
 JS
 
-pass "confirm dialog buttons size to their labels without overflowing the card"
+require_compositor "ConfirmDialog button geometry runtime test"
+
+if ! command -v quickshell >/dev/null 2>&1; then
+  pass "quickshell not installed; skipping ConfirmDialog button geometry runtime test"
+  exit 0
+fi
+
+TMPDIR=$(mktemp -d)
+cleanup() {
+  if [[ -d $TMPDIR ]]; then
+    rm -rf "$TMPDIR"
+  fi
+}
+trap cleanup EXIT
+
+ln -s "$ROOT/shell/Ui" "$TMPDIR/Ui"
+ln -s "$ROOT/shell/Commons" "$TMPDIR/Commons"
+
+cat >"$TMPDIR/shell.qml" <<'QML'
+import QtQuick
+import Quickshell
+import qs.Commons
+import qs.Ui
+
+ShellRoot {
+  id: root
+
+  // [host width, cancel, confirm, expected confirm button width, or 0 for grown past the minimum]
+  property var cases: [
+    [600, "Cancel", "Delete", Style.space(88)],
+    [600, "Cancel", "Delete permanently", 0],
+    [600, "Abbrechen", "Endgültig löschen", 0],
+    [600, "Cancel", "Delete every clipboard entry permanently and forever", 0],
+    [260, "Cancel", "Delete permanently", 0]
+  ]
+  property int current: 0
+
+  function fail(message) {
+    console.log("RESULT fail " + message)
+    Qt.quit()
+  }
+
+  function find(item, test, out) {
+    if (test(item)) out.push(item)
+    for (var i = 0; i < item.children.length; i++) find(item.children[i], test, out)
+    return out
+  }
+
+  function check() {
+    var c = cases[current]
+    var card = find(dialog, function(item) { return item.hasOwnProperty("contentLeftInset") }, [])[0]
+    var buttons = find(card, function(item) { return item.hasOwnProperty("modelData") && item.hasOwnProperty("destructive") }, [])
+
+    if (buttons.length !== 2) return fail("expected two buttons, found " + buttons.length)
+
+    for (var i = 0; i < buttons.length; i++) {
+      var button = buttons[i]
+      var label = find(button, function(item) { return item.hasOwnProperty("elide") }, [])[0]
+      var name = "'" + button.modelData + "' in a " + c[0] + "px host"
+      var left = label.mapToItem(button, 0, 0).x + (label.width - label.paintedWidth) / 2
+      var x = button.mapToItem(card, 0, 0).x
+
+      if (left < 0 || left + label.paintedWidth > button.width + 0.5)
+        return fail(name + " paints " + label.paintedWidth + "px of text in a " + button.width + "px button")
+      if (x < card.contentLeftInset - 0.5 || x + button.width > card.width - card.contentRightInset + 0.5)
+        return fail(name + " leaves the card")
+    }
+
+    var expected = c[3]
+    if (expected && buttons[1].width !== expected)
+      return fail("'" + c[2] + "' is " + buttons[1].width + "px wide, expected " + expected)
+    if (!expected && buttons[1].width <= Style.space(88))
+      return fail("'" + c[2] + "' did not grow past the minimum width")
+
+    current++
+    if (current >= cases.length) {
+      console.log("RESULT pass")
+      Qt.quit()
+    } else {
+      load()
+    }
+  }
+
+  function load() {
+    var c = cases[current]
+    host.width = c[0]
+    dialog.cancelText = c[1]
+    dialog.confirmText = c[2]
+    Qt.callLater(function() { Qt.callLater(check) })
+  }
+
+  Component.onCompleted: Qt.callLater(load)
+
+  Item {
+    id: host
+    width: 600
+    height: 400
+
+    ConfirmDialog {
+      id: dialog
+      anchors.fill: parent
+      opened: true
+      message: "Clear history?"
+    }
+  }
+}
+QML
+
+output=$(timeout 15 quickshell -p "$TMPDIR" --no-color 2>&1) || {
+  printf '%s\n' "$output" >&2
+  fail "ConfirmDialog button geometry runtime fixture exits cleanly"
+}
+
+if ! grep -q "RESULT pass" <<<"$output"; then
+  printf '%s\n' "$output" >&2
+  fail "ConfirmDialog button labels stay inside their buttons and the card"
+fi
+
+pass "ConfirmDialog button labels stay inside their buttons and the card"
