@@ -27,6 +27,19 @@ cat >"$mock_bin/omarchy-pkg-add" <<'SH'
 printf 'pkg:%s\n' "$*" >>"$OMARCHY_TEST_PKG_LOG"
 SH
 
+# Installed packages come from OMARCHY_TEST_INSTALLED, a space-separated list.
+cat >"$mock_bin/omarchy-pkg-present" <<'SH'
+#!/bin/bash
+for pkg in "$@"; do
+  [[ " ${OMARCHY_TEST_INSTALLED:-} " == *" $pkg "* ]] || exit 1
+done
+SH
+
+cat >"$mock_bin/omarchy-cmd-present" <<'SH'
+#!/bin/bash
+exit 1
+SH
+
 for stub in \
   omarchy-install-chromium-copy-url \
   omarchy-install-chromium-ytdlp \
@@ -59,69 +72,55 @@ SH
 
 chmod +x "$mock_bin"/* "$fake_root/bin/omarchy-install-browser"
 
-: >"$pkg_log"
-HOME="$home_dir" PATH="$mock_bin:/usr/bin:/bin" OMARCHY_PATH="$fake_root" \
-  OMARCHY_TEST_PKG_LOG="$pkg_log" \
-  bash "$fake_root/bin/omarchy-install-browser" chrome >/dev/null
+install_browser() {
+  : >"$pkg_log"
+  HOME="$home_dir" PATH="$mock_bin:/usr/bin:/bin" OMARCHY_PATH="$fake_root" \
+    OMARCHY_TEST_PKG_LOG="$pkg_log" OMARCHY_TEST_INSTALLED="$1" \
+    bash "$fake_root/bin/omarchy-install-browser" "$2" >/dev/null
+}
 
+run_migration() {
+  : >"$pkg_log"
+  HOME="$home_dir" PATH="$mock_bin:/usr/bin:/bin" OMARCHY_PATH="$ROOT" \
+    OMARCHY_TEST_PKG_LOG="$pkg_log" OMARCHY_TEST_INSTALLED="$1" \
+    bash -euo pipefail "$migration" >/dev/null
+}
+
+install_browser "qt5-base" chrome
 grep -Fx 'aur:google-chrome' "$pkg_log" >/dev/null ||
   fail "chrome install still adds google-chrome" "$(cat "$pkg_log")"
 grep -Fx 'pkg:qt5-wayland' "$pkg_log" >/dev/null ||
-  fail "chrome install adds qt5-wayland for libqt5_shim under Wayland" "$(cat "$pkg_log")"
-pass "chrome install adds qt5-wayland for libqt5_shim under Wayland"
+  fail "chrome install adds qt5-wayland where qt5-base is installed" "$(cat "$pkg_log")"
+pass "chrome install adds qt5-wayland where qt5-base is installed"
+
+# Without qt5-base Chrome uses its Qt6 shim, which qt6-wayland already serves.
+install_browser "" chrome
+grep -Fx 'aur:google-chrome' "$pkg_log" >/dev/null ||
+  fail "chrome install still adds google-chrome" "$(cat "$pkg_log")"
+! grep -q 'qt5-wayland' "$pkg_log" ||
+  fail "chrome install leaves Qt5 off a machine without qt5-base" "$(cat "$pkg_log")"
+pass "chrome install leaves Qt5 off a machine without qt5-base"
 
 # Chromium does not ship libqt5_shim and must not pull the Qt5 stack.
-: >"$pkg_log"
-HOME="$home_dir" PATH="$mock_bin:/usr/bin:/bin" OMARCHY_PATH="$fake_root" \
-  OMARCHY_TEST_PKG_LOG="$pkg_log" \
-  bash "$fake_root/bin/omarchy-install-browser" chromium >/dev/null
-
+install_browser "qt5-base" chromium
 grep -Fx 'pkg:chromium' "$pkg_log" >/dev/null ||
   fail "chromium install still adds chromium" "$(cat "$pkg_log")"
-grep -q 'qt5-wayland' "$pkg_log" &&
-  fail "chromium install must not pull qt5-wayland" "$(cat "$pkg_log")"
+! grep -q 'qt5-wayland' "$pkg_log" ||
+  fail "chromium install does not pull qt5-wayland" "$(cat "$pkg_log")"
 pass "chromium install does not pull qt5-wayland"
 
-# Migration only installs qt5-wayland when Chrome is already present.
 migration="$ROOT/migrations/1788743895.sh"
 [[ -f $migration ]] || fail "qt5-wayland chrome migration exists"
-grep -F 'omarchy-pkg-add qt5-wayland' "$migration" >/dev/null ||
-  fail "qt5-wayland chrome migration installs the package"
-grep -F 'google-chrome' "$migration" >/dev/null ||
-  fail "qt5-wayland chrome migration gates on Chrome being present"
-pass "qt5-wayland chrome migration gates on Chrome being present"
 
-# Migration no-ops when Chrome is absent.
-: >"$pkg_log"
-cat >"$mock_bin/omarchy-pkg-present" <<'SH'
-#!/bin/bash
-exit 1
-SH
-cat >"$mock_bin/omarchy-cmd-present" <<'SH'
-#!/bin/bash
-exit 1
-SH
-chmod +x "$mock_bin/omarchy-pkg-present" "$mock_bin/omarchy-cmd-present"
-
-HOME="$home_dir" PATH="$mock_bin:/usr/bin:/bin" OMARCHY_PATH="$ROOT" \
-  OMARCHY_TEST_PKG_LOG="$pkg_log" \
-  bash -euo pipefail "$migration" >/dev/null
-
+run_migration "qt5-base"
 [[ ! -s $pkg_log ]] || fail "qt5-wayland migration is a no-op without Chrome" "$(cat "$pkg_log")"
 pass "qt5-wayland migration is a no-op without Chrome"
 
-# Migration installs when Chrome is present.
-: >"$pkg_log"
-cat >"$mock_bin/omarchy-pkg-present" <<'SH'
-#!/bin/bash
-[[ $1 == "google-chrome" ]]
-SH
-chmod +x "$mock_bin/omarchy-pkg-present"
+run_migration "google-chrome"
+[[ ! -s $pkg_log ]] || fail "qt5-wayland migration is a no-op without qt5-base" "$(cat "$pkg_log")"
+pass "qt5-wayland migration is a no-op without qt5-base"
 
-HOME="$home_dir" PATH="$mock_bin:/usr/bin:/bin" OMARCHY_PATH="$ROOT" \
-  OMARCHY_TEST_PKG_LOG="$pkg_log" \
-  bash -euo pipefail "$migration" >/dev/null
-
+run_migration "google-chrome qt5-base"
 grep -Fx 'pkg:qt5-wayland' "$pkg_log" >/dev/null ||
-  fail "qt5-wayland migration installs when Chrome is present" "$(cat "$pkg_log")"
-pass "qt5-wayland migration installs when Chrome is present"
+  fail "qt5-wayland migration installs when Chrome and qt5-base are present" "$(cat "$pkg_log")"
+pass "qt5-wayland migration installs when Chrome and qt5-base are present"
