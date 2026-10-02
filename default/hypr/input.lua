@@ -30,13 +30,8 @@ local vconsole = read_vconsole()
 
 local kb_layout = vconsole.XKBLAYOUT or "us"
 local kb_variant = vconsole.XKBVARIANT or ""
--- CapsLock is the compose key (Multi_key). Do not pair that with
--- shift:both_capslock_cancel: it puts Caps_Lock on level 2 of both Shift keys,
--- and XWayland's core modifier map then treats Left Shift as lock (ShiftLock),
--- so every X11 client latches into a permanently shifted state (#10545).
--- Wayland clients evaluate xkb levels correctly, which is why this only shows
--- up under XWayland. Leaving Caps without a Caps_Lock keysym is the trade-off
--- documented in the manual; users who want Caps Lock move compose off Caps.
+-- CapsLock is the compose key, and Caps Lock gets no other home: shift:both_capslock*
+-- puts it on the Shift keys, and XWayland then makes Left Shift a lock key (#10545).
 local kb_options = "compose:caps"
 
 -- Hyprland resolves keybindings against the first entry in kb_layout, not the
