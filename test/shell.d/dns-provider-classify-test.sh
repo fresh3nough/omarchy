@@ -68,3 +68,9 @@ pass "custom lists that include public resolvers classify as Custom"
 expect_class "192.168.1.1,10.0.0.1" "Custom"
 expect_class "9.9.9.9#dns.quad9.net" "Custom"
 pass "pure custom server lists classify as Custom"
+
+# A provider's TLS hostname never stands in for its address.
+expect_class "192.168.1.1#dns.google" "Custom"
+expect_class "192.168.1.1#cloudflare-dns.com" "Custom"
+expect_class "1.1.1.1#dns.google" "Custom"
+pass "a provider hostname on another address classifies as Custom"

@@ -133,8 +133,9 @@ classify_dns_servers() {
       ;;
     esac
     case "$host" in
-    cloudflare-dns.com)
-      is_cloudflare=1
+    "" | cloudflare-dns.com) ;;
+    *)
+      is_cloudflare=0
       ;;
     esac
 
@@ -145,8 +146,9 @@ classify_dns_servers() {
       ;;
     esac
     case "$host" in
-    dns.google)
-      is_google=1
+    "" | dns.google) ;;
+    *)
+      is_google=0
       ;;
     esac
 
