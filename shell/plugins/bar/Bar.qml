@@ -220,7 +220,7 @@ Item {
     if (!slot) return null
 
     try {
-      var slotPoint = slot.mapToItem(null, 0, 0)
+      var slotPoint = typeof slot.mapToItem === "function" ? slot.mapToItem(null, 0, 0) : { x: slot.x, y: slot.y }
       var screenPoint = barDragScreenPoint(slotPoint)
       var thickness = Style.spacing.xs
       if (vertical) {
@@ -724,7 +724,9 @@ Item {
     function addEmptyRegionCandidate(region, edgeX, edgeY) {
       if (!bar || seenRegions[region]) return
       candidates.push({
-        slot: { region: region, moduleName: "" },
+        // Geometry for dropMarkerRect, which has no ModuleSlot to map here.
+        slot: { region: region, moduleName: "", x: edgeX, y: edgeY,
+                width: root.vertical ? bar.width : 1, height: root.vertical ? 1 : bar.height },
         x: edgeX, y: edgeY,
         width: 1, height: 1
       })
