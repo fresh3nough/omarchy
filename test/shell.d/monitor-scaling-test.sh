@@ -179,6 +179,17 @@ grep -Fx -- '--systemd GDK_SCALE=1' "$dbus_out" >/dev/null ||
 pass "monitor scaling persists and propagates the legacy stock config"
 
 cat >"$monitor_lua" <<'LUA'
+hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 2 })
+hl.env("GDK_SCALE", "2") -- GTK scale
+LUA
+OMARCHY_TEST_MONITOR_SCALE=2 run_scaling 1
+grep -Fx 'hl.env("GDK_SCALE", "1") -- GTK scale' "$monitor_lua" >/dev/null ||
+  fail "monitor scaling persists a legacy GDK line with trailing text"
+grep -Fx -- '--systemd GDK_SCALE=1' "$dbus_out" >/dev/null ||
+  fail "monitor scaling propagates a legacy GDK line with trailing text"
+pass "monitor scaling propagates a legacy GDK line with trailing text"
+
+cat >"$monitor_lua" <<'LUA'
 hl.monitor({ output = "DP-1", mode = "preferred", position = "auto", scale = 2 })
 hl.env("GDK_SCALE", "2")
 LUA
