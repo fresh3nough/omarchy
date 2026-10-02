@@ -712,12 +712,8 @@ Item {
       })
     }
 
-    // Every section needs a drop-zone, even when empty (#9842).
-    // Add a thin reference candidate at the expected section edge so that
-    // nearestDropTarget can resolve the correct region when no real slots
-    // occupy that area. The candidate is 1 px wide and sits flush with the
-    // section boundary; it only wins when the cursor is inside an empty zone.
-    // Bounds come from the bar window, whose scene the slots and scenePoint share.
+    // An empty section has no slot to drop beside (#9842), so it gets a 1px candidate at its
+    // edge, in the bar window's scene, which the slots and scenePoint share.
     var bar = sourceWindow ? sourceWindow.contentItem : null
     var barBounds = { x: 0, y: 0, width: bar ? bar.width : 0, height: bar ? bar.height : 0 }
 
