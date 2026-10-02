@@ -35,3 +35,9 @@ assert timer_pos > fv_pos, "Timer must appear after FileView (agentFile id)"
 assert "agentFile.reload()" in qml, "Timer calls agentFile.reload()"
 PY
 pass "fallback Timer references the FileView id"
+
+# A reload that finds the same bytes must not replace the record, or every
+# fallback tick rewrites the sync snapshot.
+grep -F 'if (text === root.loadedText) return' "$agent_qml" >/dev/null ||
+  fail "an unchanged reload keeps the same record"
+pass "an unchanged reload keeps the same record"

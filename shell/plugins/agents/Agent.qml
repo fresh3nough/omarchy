@@ -12,6 +12,7 @@ Item {
   property string agentId: ""
   property string path: ""
   property var record: null
+  property string loadedText: ""
 
   FileView {
     id: agentFile
@@ -20,7 +21,10 @@ Item {
     printErrors: false
     onFileChanged: reload()
     onLoaded: root.parse(text())
-    onLoadFailed: root.record = null
+    onLoadFailed: {
+      root.loadedText = ""
+      root.record = null
+    }
   }
 
   // Fallback reload when inotify watch-rearms fail (quota exhaustion, ENOSPC).
@@ -34,8 +38,13 @@ Item {
   }
 
   function parse(content) {
+    var text = String(content || "")
+    // Every new record object counts as a change and rewrites the sync
+    // snapshot, so the fallback reload must not make one for unchanged bytes.
+    if (text === root.loadedText) return
+    root.loadedText = text
     try {
-      var parsed = JSON.parse(String(content || ""))
+      var parsed = JSON.parse(text)
       root.record = parsed && typeof parsed === "object" ? parsed : null
     } catch (e) {
       console.warn("agents", "Ignoring bad usage record", root.path, e)
