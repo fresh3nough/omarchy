@@ -54,6 +54,13 @@ exit 0
 SH
 chmod +x "$mock_bin/systemctl"
 
+# The real one would write into $HOME and fail where OWE is not installed.
+cat >"$mock_bin/omarchy-hook-install" <<'SH'
+#!/bin/bash
+printf 'omarchy-hook-install %s\n' "$*" >>"$OMARCHY_TEST_SYSTEMCTL_LOG"
+SH
+chmod +x "$mock_bin/omarchy-hook-install"
+
 # Missing unit in the middle must not stop later units.
 : >"$log"
 export OMARCHY_TEST_SYSTEMCTL_LOG="$log"
@@ -70,6 +77,8 @@ grep -F 'enable --now omarchy-crash-watch.service' "$log" >/dev/null ||
   fail "enable-user-units continues after a missing unit" "$(cat "$log")"
 grep -F 'could not enable omarchy-sleep-lock.service' "$test_tmp/err" >/dev/null ||
   fail "enable-user-units warns about the missing unit" "$(cat "$test_tmp/err")"
+grep -Fx 'omarchy-hook-install theme-set /usr/share/owe/10-owe-sync' "$log" >/dev/null ||
+  fail "enable-user-units installs the OWE hook after a missing unit" "$(cat "$log")"
 pass "enable-user-units continues after a missing unit"
 
 # Prove the old multi-arg failure mode for contrast (documentation of the bug).
@@ -99,7 +108,7 @@ pass "multi-arg enable fails the whole list when one unit is missing"
 unset OMARCHY_TEST_MISSING_UNIT
 PATH="$mock_bin:/usr/bin:/bin" bash "$script" >"$test_tmp/out" 2>"$test_tmp/err"
 [[ ! -s $test_tmp/err ]] || fail "enable-user-units is quiet when every unit enables" "$(cat "$test_tmp/err")"
-for unit in bt-agent.service omarchy-recover-internal-monitor.service omarchy-sleep-lock.service \
+for unit in bt-agent.service owed.service omarchy-recover-internal-monitor.service omarchy-sleep-lock.service \
   omarchy-migrate-notify.service omarchy-fcitx5.service omarchy-crash-watch.service; do
   grep -F "enable --now $unit" "$log" >/dev/null ||
     fail "enable-user-units enables $unit" "$(cat "$log")"
