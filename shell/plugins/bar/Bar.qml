@@ -2001,17 +2001,12 @@ Item {
       if (!target) return
       if ("bar" in target) target.bar = firstParty
         ? root : root.pluginBarApiFor(pluginApiId, moduleName, registered)
-      // Custom command modules (and any other target) may declare moduleName /
-      // settings as readonly bindings derived from their entry. `"x" in target`
-      // is still true for those, and a bare write throws TypeError and aborts
-      // the rest of injection (#9701). Swallow readonly writes so peers that
-      // need injection still receive bar/settings.
-      try {
+      // CustomCommandModule derives moduleName and settings from its entry as
+      // readonly properties, and `in` is true for those too: writing them throws.
+      if (!commandCustom) {
         if ("moduleName" in target) target.moduleName = moduleName
-      } catch (e) {}
-      try {
         if ("settings" in target) target.settings = moduleSettings
-      } catch (e) {}
+      }
     }
 
     Component {
