@@ -1077,8 +1077,11 @@ Item {
       addEmptyRegionCandidate("center", barBounds.x, barBounds.y + barBounds.height / 2)
       addEmptyRegionCandidate("right",  barBounds.x, barBounds.y + barBounds.height - 1)
     } else {
+      // Beside a camera cutout, the center section is drawn just left of the right one.
+      var besideRight = sourceWindow && sourceWindow.centerBesideRight ? sourceWindow.centerBesideRightModules : null
+      var centerX = besideRight ? besideRight.mapToItem(null, besideRight.width, 0).x - 1 : barBounds.x + barBounds.width / 2
       addEmptyRegionCandidate("left",   barBounds.x, barBounds.y)
-      addEmptyRegionCandidate("center", barBounds.x + barBounds.width / 2, barBounds.y)
+      addEmptyRegionCandidate("center", centerX, barBounds.y)
       addEmptyRegionCandidate("right",  barBounds.x + barBounds.width - 1, barBounds.y)
     }
 
@@ -1413,6 +1416,8 @@ Item {
     readonly property var panelMode: root.panelModeFor(screen)
 
     readonly property bool centerBesideRight: BarModel.centerBesideRight(root.displayCutouts, root.position, screen.name, screen.width, screen.height, screen.devicePixelRatio, panelMode)
+    // Where an empty center section takes a drop when it sits beside the right one.
+    property Item centerBesideRightModules: null
 
     readonly property bool cutoutPending: BarModel.cutoutPending(root.displayCutouts, root.position, screen.name, screen.width, screen.height, screen.devicePixelRatio, panelMode)
     property bool cutoutWaitOver: false
@@ -1542,11 +1547,13 @@ Item {
         // routing still address it. The gap lets a drop at the seam land in
         // the section the pointer is nearer to.
         ModuleList {
+          id: besideRightCenter
           entries: barWindow.centerBesideRight ? root.layoutEntries("center") : []
           region: "center"
           anchors.right: rightModules.left
           anchors.rightMargin: Style.space(4)
           anchors.verticalCenter: parent.verticalCenter
+          Component.onCompleted: barWindow.centerBesideRightModules = besideRightCenter
         }
       }
     }
