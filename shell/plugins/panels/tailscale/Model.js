@@ -29,10 +29,14 @@ function shortDnsName(name) {
   return clean.split(".")[0] || clean
 }
 
-function displayHostName(hostName, dnsName) {
+function translator(tr) {
+  return typeof tr === "function" ? tr : function(key, english) { return english }
+}
+
+function displayHostName(hostName, dnsName, tr) {
   var host = String(hostName || "")
   if (host !== "" && host.toLowerCase() !== "localhost") return host
-  return shortDnsName(dnsName) || host || "Unknown"
+  return shortDnsName(dnsName) || host || translator(tr)("tailscale.unknown", "Unknown")
 }
 
 function isMullvadHost(name) {
@@ -57,14 +61,15 @@ function osIcon(os) {
   return "󰟀"
 }
 
-function accountLabel(account) {
-  if (!account) return "Unknown account"
+function accountLabel(account, tr) {
+  var t = translator(tr)
+  if (!account) return t("tailscale.unknownAccount", "Unknown account")
   // Tailscale fills an unset nickname with the login, which every tailnet of that login shares (#9259).
   if (account.nickname && account.nickname !== account.account) return String(account.nickname)
   if (account.tailnet) return String(account.tailnet)
   if (account.nickname) return String(account.nickname)
   if (account.account) return String(account.account)
-  return String(account.id || "Unknown account")
+  return String(account.id || t("tailscale.unknownAccount", "Unknown account"))
 }
 
 function loginPlan(needsLogin, authUrl) {
@@ -98,14 +103,14 @@ function isTaildropTarget(peer, selfUserId) {
   return owner !== "" && owner === String(selfUserId || "")
 }
 
-function peerFromStatus(id, peer) {
+function peerFromStatus(id, peer, tr) {
   return {
     id: id,
-    HostName: displayHostName(peer.HostName, peer.DNSName),
+    HostName: displayHostName(peer.HostName, peer.DNSName, tr),
     UserID: String(peer.UserID || ""),
     TaildropTarget: typeof peer.TaildropTarget === "number" ? peer.TaildropTarget : 0,
     DNSName: cleanDnsName(peer.DNSName),
-    DisplayName: displayHostName(peer.HostName, peer.DNSName),
+    DisplayName: displayHostName(peer.HostName, peer.DNSName, tr),
     TailscaleIPs: filterIPv4(peer.TailscaleIPs || []),
     TailscaleIPv6: filterIPv6(peer.TailscaleIPs || []),
     Online: peer.Online === true,
@@ -222,7 +227,8 @@ function mullvadCountryOptions(nodes) {
   return mullvadRegionOptions(nodes)
 }
 
-function parseStatus(raw) {
+// message is the IPC status() text, so it stays English.
+function parseStatus(raw, tr) {
   var text = String(raw || "").trim()
   if (text === "") return { ok: true, unavailable: true, message: "Disconnected" }
 
@@ -237,7 +243,7 @@ function parseStatus(raw) {
 
     for (var id in rawPeers) {
       var peer = rawPeers[id] || {}
-      var normalized = peerFromStatus(id, peer)
+      var normalized = peerFromStatus(id, peer, tr)
       if (normalized.Mullvad) continue
       if (normalized.Online) {
         peers.push(normalized)
@@ -259,7 +265,7 @@ function parseStatus(raw) {
       running: backendState === "Running",
       needsLogin: backendState === "NeedsLogin",
       authUrl: String(data.AuthURL || ""),
-      selfName: displayHostName(self.HostName, self.DNSName),
+      selfName: displayHostName(self.HostName, self.DNSName, tr),
       selfDnsName: cleanDnsName(self.DNSName),
       selfIp: selfIps.length > 0 ? selfIps[0] : "",
       selfUserId: String(self.UserID || ""),
@@ -272,7 +278,7 @@ function parseStatus(raw) {
   }
 }
 
-function parseAccounts(raw) {
+function parseAccounts(raw, tr) {
   var text = String(raw || "").trim()
   if (text === "") return { accounts: [], selectedAccountId: "", selectedAccountLabel: "" }
 
@@ -297,7 +303,7 @@ function parseAccounts(raw) {
     return {
       accounts: next,
       selectedAccountId: selected ? String(selected.id || "") : "",
-      selectedAccountLabel: selected ? accountLabel(selected) : ""
+      selectedAccountLabel: selected ? accountLabel(selected, tr) : ""
     }
   } catch (e) {
     return { accounts: [], selectedAccountId: "", selectedAccountLabel: "" }
